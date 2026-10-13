@@ -265,30 +265,24 @@ function startPoolGauge() {
  * @returns {Promise<{ app: import("express").Application, server: import("node:http").Server }>}
  */
 async function start() {
-  // `config.db`, not `config`: `connectDatabase` lives in `platform/db/prisma`
-  // because `worker.js` needs the identical retry budget, and it takes the `db`
-  // sub-object rather than the whole config. Passing `config` here would silently
-  // fall back to the schema's defaults, which is how the API and the worker end up
-  // disagreeing about how long they wait for MySQL.
-  await connectDatabase(config.db, { logger });
-  setDependencyUp("mysql", true, { prefix: config.metrics.prefix });
-
-  // The queue shares the API's own database, so opening it is not a connection
-  // step — there is nothing to dial and nothing that can fail separately from the
-  // `connectDatabase` above. It is still *opened*, so `/health/ready` and the boot
-  // log report it as part of the API's surface rather than by inference.
-  queue.open();
-
   const app = createApp({ config, logger });
 
+  // Bind before anything that can block. Hostinger (and any Passenger-style
+  // platform) requires `listen()` within a few seconds of process start, and
+  // awaiting MySQL first can blow that budget on a cold host or a briefly
+  // unreachable database — the platform then restarts the app in a loop and
+  // reports "App did not call listen() within 3 seconds". The socket is up
+  // immediately: `/health/live` answers at once and `/health/ready` reports the
+  // database as down until the connect below completes.
   server = await new Promise((resolve, reject) => {
     const httpServer = app.listen(config.http.port, config.http.host, () => resolve(httpServer));
     httpServer.once("error", reject);
   });
 
   applyTimeouts(server, config.http);
-  startPoolGauge();
 
+  // Installed before the database wait: a SIGTERM that arrives while MySQL is
+  // still connecting must still drain, or the process hangs until SIGKILL.
   installSignalHandlers();
 
   logger.info(
@@ -307,6 +301,21 @@ async function start() {
     },
     `API server listening on http://${config.http.host}:${config.http.port}`
   );
+
+  // Still fail-fast: `config.db`, not `config`, because `connectDatabase` lives
+  // in `platform/db/prisma` (the worker needs the identical retry budget) and
+  // takes the `db` sub-object rather than the whole config. If MySQL never
+  // answers, the process exits non-zero after the bounded retries instead of
+  // serving 500s, and the platform replaces it.
+  await connectDatabase(config.db, { logger });
+  setDependencyUp("mysql", true, { prefix: config.metrics.prefix });
+
+  // The queue shares the API's own database, so opening it is not a connection
+  // step — there is nothing to dial and nothing that can fail separately from the
+  // `connectDatabase` above. It is still *opened*, so `/health/ready` and the boot
+  // log report it as part of the API's surface rather than by inference.
+  queue.open();
+  startPoolGauge();
 
   // Loud, because it is the constraint most likely to be forgotten: everything
   // else in M02 scales out, this does not. See docs/runbook.md.
@@ -339,7 +348,17 @@ async function start() {
  */
 function isEntryPoint() {
   if (require.main === module) return true;
-  return require.main?.filename === path.join(__dirname, "index.js");
+
+  const shim = path.join(__dirname, "index.js");
+  if (require.main?.filename === shim) return true;
+
+  // Passenger-style loaders — Hostinger's Node.js hosting among them — `require`
+  // the startup file instead of running it as the main module, so `require.main`
+  // names the loader and the two checks above are both false. The shim is still
+  // in the module cache while it requires this file, so its presence means the
+  // process was started to serve. A test that requires this module directly never
+  // loads the shim, so it still binds nothing.
+  return Boolean(require.cache[shim]);
 }
 
 if (isEntryPoint()) {

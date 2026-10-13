@@ -85,11 +85,17 @@ curl localhost:5000/api
 curl localhost:5000/metrics
 ```
 
-The API **will not start if MySQL is unreachable.** It retries `DB_CONNECT_RETRIES` times
-(5 × 1s by default) and then exits non-zero. This is deliberate: a replica that answers 500s for
-the first seconds of every deploy is worse than one that is not yet accepting connections, and a
-load balancer does not wait for a closed port. If you need the old boot-anyway behaviour while
-working without a database, raise `DB_CONNECT_RETRIES` — but do not ship that.
+The API binds its HTTP socket **before** it waits for MySQL. A Passenger-style platform
+(Hostinger's Node.js hosting included) restarts an app that has not called `listen()` within
+about 3 seconds, so the process must not spend that window retrying a database. Once bound,
+`/health/live` answers immediately and `/health/ready` reports the database as down until it
+connects.
+
+MySQL is still a hard dependency: `connectDatabase` retries `DB_CONNECT_RETRIES` times
+(5 × 1s by default) and, if it never answers, the process exits non-zero rather than serving
+500s. Point the readiness probe at `/health/ready` so the platform does not route traffic before
+the database is up. If you need to boot without a database, raise `DB_CONNECT_RETRIES` — but do
+not ship that.
 
 > **Do not run `pnpm lint`.** It cannot run: `.eslintrc.json` exists but `eslint` and
 > `eslint-config-prettier` are not in `devDependencies`. Being fixed in

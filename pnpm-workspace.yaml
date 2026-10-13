@@ -4,6 +4,12 @@ overrides:
   # proxy-addr <2.0.8 mishandles IPv6 trust subnets with zero leading bits
   # (e.g. ::ffff:10.0.0.0/8), trusting every IPv4 client as a proxy.
   proxy-addr: 2.0.8
+  # qs <6.16.0 duck-types buffers as `obj.constructor.isBuffer(obj)` without
+  # checking it is callable. `qs.parse(..., { plainObjects: true })` (or
+  # `allowPrototypes`) keeps an attacker-supplied `constructor` key as an own
+  # property, so a parse -> stringify round-trip calls a non-function and throws
+  # TypeError, taking down the request/worker. 6.16.0 adds the typeof guard.
+  qs: 6.16.0
 
 allowBuilds:
   '@prisma/client': true
