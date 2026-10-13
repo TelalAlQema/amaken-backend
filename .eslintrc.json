@@ -1,0 +1,16 @@
+{
+  "root": true,
+  "extends": ["eslint:recommended", "prettier"],
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "commonjs"
+  },
+  "env": {
+    "node": true,
+    "es2022": true
+  },
+  "rules": {
+    "no-console": "warn"
+  },
+  "ignorePatterns": ["node_modules/", "dist/", ".next/"]
+}

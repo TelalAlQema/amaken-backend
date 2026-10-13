@@ -1,0 +1,13 @@
+{
+  "name": "@amaken/shared",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.js",
+  "scripts": {
+    "lint": "eslint src --ext .js",
+    "clean": "rm -rf node_modules"
+  },
+  "dependencies": {
+    "zod": "^3.23.0"
+  }
+}
