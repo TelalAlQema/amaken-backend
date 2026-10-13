@@ -26,6 +26,9 @@ const MULTER_MESSAGES = Object.freeze({
   LIMIT_FILE_SIZE: "File size exceeds the limit",
   LIMIT_UNEXPECTED_FILE: "Unexpected file field",
   LIMIT_FILE_COUNT: "Too many files",
+  LIMIT_FIELD_COUNT: "Too many form fields",
+  LIMIT_FIELD_ARRAY_INDEX: "Field name array index is too large",
+  LIMIT_FIELD_NESTING: "Field name is nested too deeply",
 });
 
 /**

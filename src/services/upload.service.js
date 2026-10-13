@@ -29,6 +29,25 @@ const storage = require("../platform/storage");
 const ALLOWED_MIMES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
 /**
+ * Per-request limits shared by every middleware.
+ *
+ * Both bracket limits are `0` because every field this service reads is a fixed
+ * literal (`image`, `pimage`, `mapimage`, …) with no bracket notation at all.
+ * `fieldArrayIndexLimit` rejects a name whose bracket path carries a numeric
+ * index larger than it — the sparse-array DoS (CVE-2026-77078 / CVE-2026-82333);
+ * `fieldNestingDepth` rejects a name nested deeper than it — the deeply-nested
+ * object DoS. At `0`, `items[4294967294]` and `a[b][c]` are both refused at the
+ * middleware, before `append-field` allocates anything, while plain names are
+ * unaffected.
+ *
+ * @param {number} fileSize
+ * @returns {{ fileSize: number, fieldArrayIndexLimit: number, fieldNestingDepth: number }}
+ */
+function uploadLimits(fileSize) {
+  return { fileSize, fieldArrayIndexLimit: 0, fieldNestingDepth: 0 };
+}
+
+/**
  * `memoryStorage`, deliberately.
  *
  * Images are resized and re-encoded by sharp before anything touches the disk, so
@@ -59,11 +78,11 @@ function fileFilter(_req, file, cb) {
 // calling page before an upload path is touched.
 
 /** 2MB. The profile avatar page. */
-const uploadProfileImage = multer({ storage: memory, fileFilter, limits: { fileSize: 2 * 1024 * 1024 } })
+const uploadProfileImage = multer({ storage: memory, fileFilter, limits: uploadLimits(2 * 1024 * 1024) })
   .single("image");
 
 /** 5MB. The company logo page. */
-const uploadLogo = multer({ storage: memory, fileFilter, limits: { fileSize: 5 * 1024 * 1024 } }).single(
+const uploadLogo = multer({ storage: memory, fileFilter, limits: uploadLimits(5 * 1024 * 1024) }).single(
   "image"
 );
 
@@ -71,7 +90,7 @@ const uploadLogo = multer({ storage: memory, fileFilter, limits: { fileSize: 5 *
 const uploadPropertyImages = multer({
   storage: memory,
   fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: uploadLimits(5 * 1024 * 1024),
 }).fields([
   { name: "pimage", maxCount: 1 },
   { name: "pimage1", maxCount: 1 },
@@ -84,11 +103,11 @@ const uploadPropertyImages = multer({
 ]);
 
 /** 5MB. The about page. */
-const uploadAboutImage = multer({ storage: memory, fileFilter, limits: { fileSize: 5 * 1024 * 1024 } })
+const uploadAboutImage = multer({ storage: memory, fileFilter, limits: uploadLimits(5 * 1024 * 1024) })
   .single("image");
 
 /** 5MB. The team page. */
-const uploadTeamImage = multer({ storage: memory, fileFilter, limits: { fileSize: 5 * 1024 * 1024 } })
+const uploadTeamImage = multer({ storage: memory, fileFilter, limits: uploadLimits(5 * 1024 * 1024) })
   .single("image");
 
 // ─── pre-M02 API, preserved ──────────────────────────────────────────────────

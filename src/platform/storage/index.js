@@ -22,6 +22,23 @@
 const path = require("node:path");
 const sharp = require("sharp");
 
+// Defence in depth for the decoder memory-safety advisories. This service only
+// ever accepts raster uploads (`services/upload.service.js:29`) and a client can
+// spoof the mimetype, so let sharp refuse to decode every disallowed container:
+// SVG (librsvg), HEIF/AVIF (libheif, CVE-2026-84383), TIFF and the native VIPS
+// format. GIF is deliberately **not** blocked — it is on the allowlist, and
+// `VipsForeignLoadNsgif` is exactly the libvips loader the upstream advisory
+// names. sharp 0.35.5 also bundles patched libvips 8.18.7, so this is
+// belt-and-braces rather than the fix.
+sharp.block({
+  operation: [
+    "VipsForeignLoadSvg",
+    "VipsForeignLoadHeif",
+    "VipsForeignLoadTiff",
+    "VipsForeignLoadVips",
+  ],
+});
+
 const config = require("../../config");
 const { StorageDir, buildKey, isSafeKey } = require("./port");
 const { createLocalDiskStorage } = require("./local-disk");
