@@ -12,6 +12,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
+    "db:deploy": "prisma db push",
     "test": "node scripts/test-db.js ensure && node --test --test-concurrency=1 \"test/**/*.test.js\"",
     "test:contract": "node scripts/test-db.js ensure && node --test --test-concurrency=1 \"test/contract/*.test.js\"",
     "test:db:reset": "node scripts/test-db.js reset",

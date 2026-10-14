@@ -8,9 +8,9 @@ async function createFeedback(senderEmail, receiverEmail, data) {
   const [sender, receiverRows] = await Promise.all([
     prisma.user.findFirst({ where: { uemail: senderEmail } }),
     prisma.$queryRaw`
-      SELECT 'admin' AS kind, aid AS id FROM Admin WHERE aemail = ${receiverEmail}
+      SELECT 'admin' AS kind, aid AS id FROM admin WHERE aemail = ${receiverEmail}
       UNION ALL
-      SELECT 'user' AS kind, uid AS id FROM User WHERE uemail = ${receiverEmail}
+      SELECT 'user' AS kind, uid AS id FROM user WHERE uemail = ${receiverEmail}
       LIMIT 1
     `,
   ]);

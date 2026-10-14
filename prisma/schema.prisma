@@ -78,6 +78,12 @@ model User {
   properties    Property[]    @relation("UserProperties")
   feedbackGiven Feedback[]    @relation("FeedbackFromUser")
   deviceTokens  DeviceToken[]
+
+  /// The production database is the legacy PHP schema, whose table names are
+  /// lower-case. MySQL/MariaDB on Linux is case-sensitive for table names, so
+  /// every model must map explicitly or Prisma looks for `User` and 500s on
+  /// `user`. `register_email` was already mapped; the rest were not.
+  @@map("user")
 }
 
 model Admin {
@@ -128,6 +134,8 @@ model Admin {
   properties    Property[]   @relation("AdminProperties")
   feedbackGiven Feedback[]   @relation("FeedbackFromAdmin")
   social        AdminSocial?
+
+  @@map("admin")
 }
 
 model Property {
@@ -192,11 +200,14 @@ model Property {
   @@index([type])
   @@index([stype])
   @@index([deactivate, adminapproval, blocked_user, adminblock, priceValue], map: "Property_visibility_price_idx")
+  @@map("property")
 }
 
 model Pin {
   id   Int    @id @default(autoincrement())
   upin String @db.VarChar(255)
+
+  @@map("pin")
 }
 
 model PropertyLead {
@@ -217,6 +228,7 @@ model PropertyLead {
 
   @@index([pid])
   @@index([email])
+  @@map("property_leads")
 }
 
 model DelAccount {
@@ -249,6 +261,7 @@ model DelAccount {
   // picks this up with no migration step.
   @@unique([email])
   @@index([type])
+  @@map("delaccount")
 }
 
 model DeviceToken {
@@ -259,6 +272,7 @@ model DeviceToken {
   user User? @relation(fields: [user_id], references: [uid])
 
   @@index([user_id])
+  @@map("device_token")
 }
 
 model City {
@@ -269,6 +283,7 @@ model City {
   state State @relation(fields: [sid], references: [sid])
 
   @@index([sid])
+  @@map("city")
 }
 
 model State {
@@ -276,6 +291,8 @@ model State {
   sname String @db.VarChar(255)
 
   cities City[]
+
+  @@map("state")
 }
 
 model About {
@@ -283,6 +300,8 @@ model About {
   title   String? @db.VarChar(255)
   content String  @db.Text
   image   String? @db.VarChar(255)
+
+  @@map("about")
 }
 
 model Feedback {
@@ -306,6 +325,7 @@ model Feedback {
   @@index([uid])
   @@index([agid])
   @@index([receive_email])
+  @@map("feedback")
 }
 
 model TeamMember {
@@ -324,15 +344,19 @@ model TeamMember {
   twitter  String? @db.VarChar(500)
   image    String  @db.VarChar(500)
   position String  @db.VarChar(255)
+
+  @@map("newmember")
 }
 
 model Contact {
-  id      Int    @id @default(autoincrement())
+  id      Int    @id @default(autoincrement()) @map("cid")
   name    String @db.VarChar(255)
   email   String @db.VarChar(255)
   phone   String @db.VarChar(100)
   subject String @db.VarChar(255)
   message String @db.Text
+
+  @@map("contact")
 }
 
 model RegisterEmail {
@@ -357,6 +381,8 @@ model AdminSocial {
   updated_at DateTime @default(now())
 
   admin Admin @relation(fields: [admin_id], references: [aid])
+
+  @@map("admin_social")
 }
 
 // ============================================================

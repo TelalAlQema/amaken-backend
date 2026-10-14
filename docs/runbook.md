@@ -75,7 +75,7 @@ cd backend
 pnpm install
 cp .env.example .env          # edit DATABASE_URL, JWT_SECRET, JWT_REFRESH_SECRET
 pnpm db:generate              # required after any schema.prisma change
-pnpm db:push                  # the schema path — there is no prisma/migrations/ directory
+pnpm db:push                  # creates/syncs every table from schema.prisma
 pnpm dev                      # node --watch src/index.js
 ```
 
@@ -120,6 +120,103 @@ NEXT_PUBLIC_PROPERTY_IMAGE_BASE=http://localhost:5000/uploads/properties
 
 There is no committed `frontend/.env.local`. `NEXT_PUBLIC_API_URL` defaults in code to
 `http://localhost:5000/api`.
+
+## Production bootstrap
+
+The production API (Hostinger, `api.amaken-realestate.com`) is a checkout of this repo run with
+`pnpm start`. Deploying the code does **not** create the database schema, and a fresh — or
+mis-pointed — database is the normal cause of `500` on every data endpoint. The symptom is a
+`prisma:error` of the form:
+
+```
+Invalid `prisma.property.findMany()` invocation:
+The table `Property` does not exist in the current database.
+```
+
+(Once the `@@map`s are in place the same "schema never pushed" state shows up instead as a missing
+column, e.g. ``The column `...Property.priceValue` does not exist`` — same cause, same fix.)
+
+`/health/ready` distinguishes this from a genuine outage: the `database` probe only runs `SELECT 1`,
+so it passes on an empty schema, but the `queue` probe reads `jobs` and fails with
+`The table 'jobs' does not exist`. **`database: ok` in `/health/ready` does not mean the schema is
+present** — treat a failing `queue` check on a fresh deploy as "schema never pushed".
+
+### Environment
+
+Set these in the Hostinger app's environment. `src/config/env.schema.js` is the contract — an
+undeclared key is ignored.
+
+| Variable | Production value | Why |
+|---|---|---|
+| `NODE_ENV` | `production` | Enables the hard fail on missing secrets below |
+| `DATABASE_URL` | `mysql://user:pass@host:3306/db` | The managed MySQL instance, **not** localhost |
+| `JWT_SECRET` / `JWT_REFRESH_SECRET` | random, distinct | Boot refuses without them in production |
+| `CORS_ORIGIN` | `https://amaken-realestate.com,https://www.amaken-realestate.com` | **Comma-separated**, matched exactly. Leaving the default `http://localhost:3000` makes browsers reject every cross-origin call from the real site |
+| `TRUST_PROXY` | `true` | The site is behind a proxy (hcdn/ALB). Without it `X-Forwarded-For` is ignored and express-rate-limit keys every visitor to the proxy's IP |
+
+### Apply the schema (once, and after any `schema.prisma` change)
+
+```bash
+cd backend
+pnpm db:deploy     # prisma db push — creates/syncs every table from schema.prisma
+```
+
+`db:deploy` is `prisma db push`: idempotent (a no-op when the schema already matches), and it
+**refuses to run rather than drop data** if a change would be destructive, so it is safe on a
+database that is already on the Prisma schema. It is deliberately a **manual release step, never on
+boot** — a replica that migrates on start races every other replica.
+
+> `prisma migrate deploy` is **not** usable here yet. `prisma/migrations/` holds a single
+> incremental migration (`20261005000000_add_property_price_value`) that `ALTER TABLE`s `Property`
+> and assumes every table already exists. On an empty database it fails immediately. Until a full
+> baseline migration is committed, `db:push` is the schema path.
+
+### Migrating the existing legacy database (one-time cutover)
+
+Production is **not** a fresh database. It is the old PHP/MariaDB schema (`u358308469_AizaButtRaza00`),
+which differs from `schema.prisma` in three ways, and `pnpm db:deploy` alone will **not** converge it:
+
+1. **Table names are lower-case** (`property`, `newmember`, `contact`, …). MariaDB on Linux is
+   case-sensitive, so un-mapped Prisma models fail with `The table 'Property' does not exist`.
+   Every model now carries `@@map` (and `@map` for odd columns, e.g. `Contact.id @map("cid")`) to
+   target the legacy names — **do not remove these**.
+2. **Every column is stored as a string.** Empty strings, human dates (`25-Jun-Fri 06:20:24`),
+   `NULL` values in required columns and orphaned foreign keys (`property.uid = 0`) all block the
+   typed schema. `scripts/legacy-migration.sql` normalises this in place.
+3. **Legacy-only tables and columns** (`modal_shown`, `visitors`; `property.pid/phone/amenities`,
+   …) are not in the schema and are dropped by the push.
+
+One-time cutover:
+
+```bash
+cd backend
+# 0. Back up first — this step is not reversible.
+mysqldump -u "$DB_USER" -p "$DB_NAME" > pre-cutover-$(date +%F).sql
+
+# 1. Normalise the legacy data in place (idempotent).
+mysql -u "$DB_USER" -p "$DB_NAME" < scripts/legacy-migration.sql
+
+# 2. Push the typed schema. --accept-data-loss is required here only because the legacy-only
+#    tables/columns above are dropped and some string columns are narrowed. It does not delete
+#    any row of the tables the app uses.
+npx prisma db push --accept-data-loss
+```
+
+Verified locally against an import of the production dump: all 45 properties, 6 leads and 4 team
+members survive, and `/api/properties?plan=Off Plan` returns `200`. After the cutover, subsequent
+schema changes go through the plain `pnpm db:deploy` again.
+
+### Verify
+
+```bash
+curl -s https://api.amaken-realestate.com/health/ready          # database, queue, storage all ok
+curl -s -o /dev/null -w "%{http_code}\n" \
+  "https://api.amaken-realestate.com/api/properties?limit=1"    # 200, not 500
+```
+
+If `/health/ready` reports `queue: ok` and `/api/properties` still 500s, read the `X-Request-Id`
+from the response and grep the server log for it — the error handler returns a generic body in
+production, so the log line is the only place the Prisma message appears.
 
 ## Deployment **[planned, M08]**
 
